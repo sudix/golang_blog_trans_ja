@@ -226,13 +226,13 @@ This pattern allows each receiving stage to be written as a range loop and ensur
 But in real pipelines, stages don't always receive all the inbound values. Sometimes this is by design: the receiver may only need a subset of values to make progress. More often, a stage exits early because an inbound value represents an error in an earlier stage. In either case the receiver should not have to wait for the remaining values to arrive, and we want earlier stages to stop producing values that later stages don't need.
 ```
 
-しかし現実のパイプラインでは、各処理が常に全ての入力値を受け取るわけではない。これは仕様の問題だ。受信側は処理を進めるのに値の一部だけ必要かもしれない。もっとよくあるケースで言えば、ある処理は入力値がその前段階での処理のエラーを示しているため、早々に終了する場合がある。どちらのケースでも受信処理は残りの値が送られてくるのを待つ必要があってはならず、我々としてはより早い段階の処理で後続処理では不要となる値を生成するのを止めたい。
+しかし現実のパイプラインでは、各処理が常に全ての入力値を受け取るわけではない。これは仕様の問題だ。受信側は処理を進めるのに値の一部だけ必要かもしれない。もっとよくあるケースで言えば、ある処理は入力値がその前段階での処理のエラーを示しているため、早々に終了する場合がある。どちらのケースでも受信処理は残りの値が送られてくるのを待つ必要があってはならず、我々としてはより早い段階で後続では不要となる値を生成するのを止めたい。
 
 ```
 In our example pipeline, if a stage fails to consume all the inbound values, the goroutines attempting to send those values will block indefinitely:
 ```
 
-
+ここまでのパイプラインのサンプルでは、もしある処理が全ての入力値を利用することに失敗したら、それらの値を送信するためのgoroutineは無期限に停止（ブロック）してしまう。
 
 ```go
     // Consume the first value from output.
@@ -244,9 +244,18 @@ In our example pipeline, if a stage fails to consume all the inbound values, the
 }
 ```
 
+```
 This is a resource leak: goroutines consume memory and runtime resources, and heap references in goroutine stacks keep data from being garbage collected. Goroutines are not garbage collected; they must exit on their own.
+```
 
+これはリソースリークとなる。gotoutineはメモリと実行時のリソースを消費し、goroutineスタックからのヒープへの参照は、データがガベージコレクトされないようにしてしまう。goroutineはガベージコレクトされず、自ら終了しなければならないのだ。
+
+```
 We need to arrange for the upstream stages of our pipeline to exit even when the downstream stages fail to receive all the inbound values. One way to do this is to change the outbound channels to have a buffer. A buffer can hold a fixed number of values; send operations complete immediately if there's room in the buffer:
+```
+
+なので、下流処理が全ての入力値を処理することに失敗した場合でも、パイプラインが終了するように、上流の処理を変更する必要がある。そのための方法の一つとして、出力チャネルにバッファをもたせる事が挙げられる。バッファは一定の数の値を保持することができる。そのため、送信側の処理はバッファに空きがあれば、処理を直ちに終了することができる。
+
 
 ```go
 c := make(chan int, 2) // buffer size 2
@@ -255,7 +264,11 @@ c <- 2  // succeeds immediately
 c <- 3  // blocks until another goroutine does <-c and receives 1
 ```
 
+```
 When the number of values to be sent is known at channel creation time, a buffer can simplify the code. For example, we can rewrite gen to copy the list of integers into a buffered channel and avoid creating a new goroutine:
+```
+
+チャネル生成時に送信する値の数が分かっている場合、バッファを使うことで簡潔に記述することができる。例えばgen関数は、リスト内の数値をバッファ化チャネルにコピーすることで、新しいgoroutineを生成しなくてもすむように変更可能だ。
 
 ```go
 func gen(nums ...int) <-chan int {
@@ -268,7 +281,11 @@ func gen(nums ...int) <-chan int {
 }
 ```
 
+```
 Returning to the blocked goroutines in our pipeline, we might consider adding a buffer to the outbound channel returned by merge:
+```
+
+我々のパイプラインに立ち返ると、merge関数によって戻される出力チャネルにバッファを追加することを考えるかもしれない。
 
 ```go
 func merge(cs ...<-chan int) <-chan int {
@@ -277,13 +294,25 @@ func merge(cs ...<-chan int) <-chan int {
     // ... the rest is unchanged ...
 ```
 
+```
 While this fixes the blocked goroutine in this program, this is bad code. The choice of buffer size of 1 here depends on knowing the number of values merge will receive and the number of values downstream stages will consume. This is fragile: if we pass an additional value to gen, or if the downstream stage reads any fewer values, we will again have blocked goroutines.
+```
 
+この変更でこのプログラムではgoroutineがブロックされることは修正できるけれども、これはダメなコードだ。ここでバッファサイズとしてなぜ1を選ぶことができたかというと、我々はmerge関数が受け取り下流処理が消費する数（訳注：ここまでのサンプルだとgen(2,3)なのでバッファが2個あれば足りるということ）を知っているからだ。これでは脆弱だ。もしgenに渡す値を追加するか、下流処理が少ない値しか処理しなければ、再びブロックされたgoroutineができてしまう。
+
+```
 Instead, we need to provide a way for downstream stages to indicate to the senders that they will stop accepting input.
+```
+
+その代わりに、上流処理に対して入力を処理することを止めると通知する機能を下流処理に導入する必要がある。
 
 ## Explicit cancellation
 
+```
 When main decides to exit without receiving all the values from out, it must tell the goroutines in the upstream stages to abandon the values they're trying it send. It does so by sending values on a channel called done. It sends two values since there are potentially two blocked senders:
+```
+
+メイン関数がoutチャネルから全ての値を受け取る事なく終了すると決めた場合、上流処理内のgoroutineに対して、送信しようとしている値を破棄するよう通知しなければならない。これはdoneと呼ばれるチャネルに値を送信することで実行する。ブロックされる可能性のある送信元は２つあるので、2つの値を送る。
 
 ```go
 func main() {
@@ -304,7 +333,11 @@ func main() {
 }
 ```
 
+```
 The sending goroutines replace their send operation with a select statement that proceeds either when the send on out happens or when they receive a value from done. The value type of done is the empty struct because the value doesn't matter: it is the receive event that indicates the send on out should be abandoned. The output goroutines continue looping on their inbound channel, c, so the upstream stages are not blocked. (We'll discuss in a moment how to allow this loop to return early.)
+```
+
+送信先goroutineでは、送信処理をselectステートメントを使い、outチャネルへの送信のが発生した場合と、doneチャネルから値を受け取った場合の処理を進めるよう変更する。doneチャネルの値は空のstructだが、値の内容自体は何でもいいので、問題ない。それはoutチャネルを破棄するように知らせる受信イベントなのだ。送信goroutineは入力チャネル(c)をループし続けるので、上流処理はブロックされない。(このループを早く止める方法については後に話す。)
 
 ```go
 func merge(done <-chan struct{}, cs ...<-chan int) <-chan int {
@@ -326,11 +359,23 @@ func merge(done <-chan struct{}, cs ...<-chan int) <-chan int {
     // ... the rest is unchanged ...
 ```
 
+```
 This approach has a problem: each downstream receiver needs to know the number of potentially blocked upstream senders and arrange to signal those senders on early return. Keeping track of these counts is tedious and error-prone.
+```
 
+この方法には問題がある。それぞれの下流の受信者は上流にあるプロックされ得る送信者の数を知っていて、送信するシグナルを変更しなければならない(訳注：この辺りあやふや)。その数をカウントするのは面倒かつバグの温床となりがちだ。
+
+```
 We need a way to tell an unknown and unbounded number of goroutines to stop sending their values downstream. In Go, we can do this by closing a channel, because a receive operation on a closed channel can always proceed immediately, yielding the element type's zero value.
+```
 
+そこで、幾つあるのか、どこまで多くなるのかも不明な数のgoroutineに対して、下流への値の送信を止めるよう通知する方法が必要だ。Goでは、チャネルをクローズすることでこれが可能だ。なぜならクローズされたチャネルに対して受信を行うと、要素のZERO値が生成され、直ちに処理が続行されるからだ(訳注：この辺りもあやふや。Goの仕様理解不足)。
+
+```
 This means that main can unblock all the senders simply by closing the done channel. This close is effectively a broadcast signal to the senders. We extend each of our pipeline functions to accept done as a parameter and arrange for the close to happen via a defer statement, so that all return paths from main will signal the pipeline stages to exit.
+```
+
+これは、単にdoneチャネルをクローズすることでメイン関数がブロックされないようにできる事を意味する。このクローズは送信者達に対して効果的に通知を伝搬する。我々のパイプライン関数をdoneチャネルを受け取るようにし、deferステートメントでクローズが起きるよう変更しよう。そうすれば、メイン関数の全てのreturn処理からパイプラインの各処理に対して終了を通知することができる。
 
 ```go
 func main() {
