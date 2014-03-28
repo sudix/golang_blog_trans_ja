@@ -1,23 +1,5 @@
 [Go Concurrency Patterns: Pipelines and cancellation - The Go Blog](http://blog.golang.org/pipelines)
 
-```
-The merge function converts a list of channels to a single channel by starting a goroutine for each inbound channel that copies the values to the sole outbound channel. Once all the output goroutines have been started, merge starts one more goroutine to close the outbound channel after all sends on that channel are done.
-```
-
-merge関数は、複数の入力チャネルを一つの出力チャネルにコピーするgoroutineによって、
-チャネルのリストを一つのチャネルに変換する。
-全ての出力goroutineが開始されれば、merge関数はもうひとつのgoroutineを開始する。
-そのgoroutineは出力チャネルが全て送信仕切ったらそのチャネルをcloseする。
-
-```
-Sends on a closed channel panic, so it's important to ensure all sends are done before calling close. The sync.WaitGroup type provides a simple way to arrange this synchronization:
-```
-閉じられたチャネルに送信するとパニックを起こすため、呼び出しが閉じる前に全ての送信が終わっている事が重要だ。
-
-
-
-
-
 # Go Concurrency Patterns: Pipelines and cancellation
 
 13 March 2014
