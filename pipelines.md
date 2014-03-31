@@ -399,7 +399,11 @@ func main() {
 }
 ```
 
+```
 Each of our pipeline stages is now free to return as soon as done is closed. The output routine in merge can return without draining its inbound channel, since it knows the upstream sender, sq, will stop attempting to send when done is closed. output ensures wg.Done is called on all return paths via a defer statement:
+```
+
+今や我々のパイプラインは全てdoneチャネルが閉じられればすぐに終了できるようになった。上流の送信者(sq)がdoneチャネルが閉じられれば送信を止めるので、merge関数の出力処理は入力チャネルから値を取得し続ける事無く終了できる。output関数はdeferステートメントによって、全ての終了経路実行時でwg.Doneが呼ばれることを保証する。
 
 ```go
 func merge(done <-chan struct{}, cs ...<-chan int) <-chan int {
@@ -422,7 +426,11 @@ func merge(done <-chan struct{}, cs ...<-chan int) <-chan int {
     // ... the rest is unchanged ...
 ```
 
+```
 Similarly, sq can return as soon as done is closed. sq ensures its out channel is closed on all return paths via a defer statement:
+```
+
+同じく、sq関数もまたdonceチャネルが閉じられればすぐに終了可能だ。deferステートメントにより、、全ての終了経路実行時に出力チャネルが閉じられる事を保証する。
 
 ```go
 func sq(done <-chan struct{}, in <-chan int) <-chan int {
@@ -441,17 +449,37 @@ func sq(done <-chan struct{}, in <-chan int) <-chan int {
 }
 ```
 
+```
 Here are the guidelines for pipeline construction:
+```
 
+パイプライン構築のガイドラインは以下となる。
+
+```
 stages close their outbound channels when all the send operations are done.
 stages keep receiving values from inbound channels until those channels are closed or the senders are unblocked.
 Pipelines unblock senders either by ensuring there's enough buffer for all the values that are sent or by explicitly signalling senders when the receiver may abandon the channel.
+```
+
+各処理は、全ての送信処理が終われば出力チャネルを閉じる。
+各処理は、入力チャネルが閉じられるか、送信者がブロックされるまでの間、入力チャネルから値を受け取り続ける。
+パイプラインは、送信する件数に十分なほどバッファを確保するか、受信者から送信者へチャネルを放棄するというシグナルを送るかのどちらかで、送信者をブロックしないようにする。
+
 
 ## Digesting a tree
 
+```
 Let's consider a more realistic pipeline.
+```
 
+もっと現実的なパイプラインを考えてみよう。
+
+
+```
 MD5 is a message-digest algorithm that's useful as a file checksum. The command line utility md5sum prints digest values for a list of files.
+```
+
+MD5はファイルのチェックサムとして便利なメッセージダイジェストアルゴリズムだ。md5sumコマンドはファイルのリストからダイジェスト値を出力するツールだ。
 
 ```bash
 % md5sum *.go
@@ -460,7 +488,11 @@ ee869afd31f83cbb2d10ee81b2b831dc  parallel.go
 b88175e65fdcbc01ac08aaf1fd9b5e96  serial.go
 ```
 
+```
 Our example program is like md5sum but instead takes a single directory as an argument and prints the digest values for each regular file under that directory, sorted by path name.
+```
+
+
 
 ```bash
 % go run serial.go .
