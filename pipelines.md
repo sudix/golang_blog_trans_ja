@@ -492,7 +492,7 @@ b88175e65fdcbc01ac08aaf1fd9b5e96  serial.go
 Our example program is like md5sum but instead takes a single directory as an argument and prints the digest values for each regular file under that directory, sorted by path name.
 ```
 
-
+我々のサンプルはmd5sumに似ているが、一つのディレクトリを引数として取り、その中のファイルを、ファイル名でソートしつつダイジェスト値を出力するものだ。
 
 ```bash
 % go run serial.go .
@@ -501,7 +501,11 @@ ee869afd31f83cbb2d10ee81b2b831dc  parallel.go
 b88175e65fdcbc01ac08aaf1fd9b5e96  serial.go
 ```
 
+```
 The main function of our program invokes a helper function MD5All, which returns a map from path name to digest value, then sorts and prints the results:
+```
+
+メイン関数は、ファイルパスからダイジェスト値を作成し、ソートした結果を返すMD5ALL関数を呼び出す。
 
 ```go
 func main() {
@@ -523,7 +527,11 @@ func main() {
 }
 ```
 
+```
 The MD5All function is the focus of our discussion. In serial.go, the implementation uses no concurrency and simply reads and sums each file as it walks the tree.
+```
+
+MD5ALL関数が今回の話題の中心となる。serial.go内部では、並列処理は使わず、単純にツリーを移動しながらそれぞれのファイルを読み込み、ダイジェスト値を生成する。
 
 ```go
 // MD5All reads all the files in the file tree rooted at root and returns a map
@@ -554,7 +562,11 @@ func MD5All(root string) (map[string][md5.Size]byte, error) {
 
 ## Parallel digestion
 
+```
 In parallel.go, we split MD5All into a two-stage pipeline. The first stage, sumFiles, walks the tree, digests each file in a new goroutine, and sends the results on a channel with value type result:
+```
+
+parallel.goでは、MD5ALL関数を2段階のパイプラインに分ける。最初の処理(sumFiles)はファイルツリーを探索し、それぞれのファイルに対して新しいgoroutineでダイジェスト値を作り、その結果をresult型の値にしてチャネルに送信する。
 
 ```go
 type result struct {
@@ -564,7 +576,11 @@ type result struct {
 }
 ```
 
+```
 sumFiles returns two channels: one for the results and another for the error returned by filepath.Walk. The walk function starts a new goroutine to process each regular file, then checks done. If done is closed, the walk stops immediately:
+```
+
+sumFiles関数は2つのチャネルを返す。一つは結果を返すためで、もう一つはfilepath.Walkが返したエラーを返すためだ。探索関数はファイルに対しての処理を行うgoroutineを実行し、それからdoneチャネルをチェックする。もしdoneチャネルが閉じていれば、探索は直ちに終了する。
 
 ```go
 func sumFiles(done <-chan struct{}, root string) (<-chan result, <-chan error) {
@@ -611,7 +627,11 @@ func sumFiles(done <-chan struct{}, root string) (<-chan result, <-chan error) {
 }
 ```
 
+```
 MD5All receives the digest values from c. MD5All returns early on error, closing done via a defer:
+```
+
+MD5All関数はcチャネルからダイジェスト値を受け取る。また、エラーが起きるとdeferによってdoneチャネルを閉じ、早い段階で終了する。
 
 ```go
 func MD5All(root string) (map[string][md5.Size]byte, error) {
@@ -638,11 +658,23 @@ func MD5All(root string) (map[string][md5.Size]byte, error) {
 
 ## Bounded parallelism
 
+```
 The MD5All implementation in parallel.go starts a new goroutine for each file. In a directory with many large files, this may allocate more memory than is available on the machine.
+```
 
+parallel.go内のMD5ALL関数の実装では、全てのファイルに対して新しくgoroutineが開始される。この実装では、大量に大きなファイルがあるディレクトリ内では、使用可能なメモリ以上にメモリを割り当ててしまうかもしれない。
+
+```
 We can limit these allocations by bounding the number of files read in parallel. In bounded.go, we do this by creating a fixed number of goroutines for reading files. Our pipeline now has three stages: walk the tree, read and digest the files, and collect the digests.
+```
 
+並行して読み込むファイル件数の上限を設定することで、このメモリ割り当てを制限することが可能だ。bouded.goではファイルを読むgoroutineの数を固定することで、この上限設定を行う。我々のパイプラインは3段階の処理を持つ。ファイルツリーの探索、ファイルの読み込みとダイジェスト値の生成、そしてダイジェスト値の集約だ。
+
+```
 The first stage, walkFiles, emits the paths of regular files in the tree:
+```
+
+最初の処理(walkFiles)はファイルツリー内のファイルへのパスを送信する。
 
 ```go
 func walkFiles(done <-chan struct{}, root string) (<-chan string, <-chan error) {
@@ -671,7 +703,11 @@ func walkFiles(done <-chan struct{}, root string) (<-chan string, <-chan error) 
 }
 ```
 
+```
 The middle stage starts a fixed number of digester goroutines that receive file names from paths and send results on channel c:
+```
+
+二番目の処理では、digester関数を実行する一定数のgoroutineを開始する。digester関数はpathsチャネルからファイル名を受け取り、ダイジェスト値を生成してresult型の値をcチャネルに送信する。
 
 ```go
 func digester(done <-chan struct{}, paths <-chan string, c chan<- result) {
@@ -686,7 +722,11 @@ func digester(done <-chan struct{}, paths <-chan string, c chan<- result) {
 }
 ```
 
+```
 Unlike our previous examples, digester does not close its output channel, as multiple goroutines are sending on a shared channel. Instead, code in MD5All arranges for the channel to be closed when all the digesters are done:
+```
+
+これまでの例とは異なり、複数のgroutineが共有された出力チャネルに対して送信しているので、digester関数はその出力チャネルを閉じない。代わりにMD5ALL関数のコードを、全てのdigesterか完了したらそのチャネルを閉じるよう変更する。
 
 ```go
     // Start a fixed number of goroutines to read and digest files.
@@ -706,9 +746,16 @@ Unlike our previous examples, digester does not close its output channel, as mul
     }()
 ```
 
+```
 We could instead have each digester create and return its own output channel, but then we would need additional goroutines to fan-in the results.
+```
 
+それぞれのdigesterが独自の送信チャネルを返すようにしてもいいが、その場合は結果をfan-inするgoroutineを別に作成しなければならない。
+
+```
 The final stage receives all the results from c then checks the error from errc. This check cannot happen any earlier, since before this point, walkFiles may block sending values downstream:
+```
+
 
 ```go
     m := make(map[string][md5.Size]byte)
