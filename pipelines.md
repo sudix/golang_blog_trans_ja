@@ -1,18 +1,16 @@
-[Go Concurrency Patterns: Pipelines and cancellation - The Go Blog](http://blog.golang.org/pipelines)
+この記事は[Go Concurrency Patterns: Pipelines and cancellation - The Go Blog](http://blog.golang.org/pipelines)を自分の勉強用に翻訳したものです。
 
 # Go Concurrency Patterns: Pipelines and cancellation
 
-13 March 2014
-
-## Introduction
+## Introduction(最初に)
 
 ```
 Go's concurrency primitives make it easy to construct streaming data pipelines that make efficient use of I/O and multiple CPUs. This article presents examples of such pipelines, highlights subtleties that arise when operations fail, and introduces techniques for dealing with failures cleanly.
 ```
 
-Goが基本的に持つ並列処理機能は、簡単にI/Oと、複数のCPUを効率的に使用するストリーミングデータパイプラインを構築することを可能にする。この記事では、このようなパイプラインの例を紹介し操作が失敗したときに発生するちょっとした点を強調して、きれいに障害に対処するためのテクニックを紹介する。
+Goが基本的に持つ並列処理機能は、I/Oや複数のCPUを効率的に使用するストリーミングデータパイプラインを構築することを簡単にする。この記事では、起きる障害や、それにうまく対処する方法に焦点をあてながら、そういったパイプランの例を紹介する。
 
-## What is a pipeline?
+## What is a pipeline?(パイプラインとは？)
 
 ```
 There's no formal definition of a pipeline in Go; it's just one of many kinds of concurrent programs. Informally, a pipeline is a series of stages connected by channels, where each stage is a group of goroutines running the same function. In each stage, the goroutines
@@ -31,7 +29,7 @@ Goでのパイプラインとは何かというはっきりした定義は無い
 各処理では、goroutineは
 
 * 入力チャネルから上流から値を受取り
-* その値に対してなんかしらの処理を行い（通常、新しい値を産み出す）
+* その値に対してなんかしらの処理を行い（通常、新しい値を生成する）
 * 値を出力チャネルを通じて下流に渡す
 
 各処理は、開始時と終了時を除き、いくつかの入力および出力チャネルをもつ。
@@ -45,7 +43,7 @@ We'll begin with a simple example pipeline to explain the ideas and techniques. 
 まず考え方と技術を説明するための簡単なサンプルから始めてみよう。
 その後で、より実用的な例を示す。
 
-## Squaring numbers
+## Squaring numbers(数を平方する)
 
 ```
 Consider a pipeline with three stages.
@@ -123,9 +121,7 @@ func main() {
 }
 ```
 
-## Fan-out, fan-in
-
-（翻訳時メモ：[ファンアウト/ファンイン - 意味・説明・解説 : ASCII.jpデジタル用語辞典](http://yougo.ascii.jp/caltar/%E3%83%95%E3%82%A1%E3%83%B3%E3%82%A2%E3%82%A6%E3%83%88/%E3%83%95%E3%82%A1%E3%83%B3%E3%82%A4%E3%83%B3)）
+## Fan-out, fan-in(ファンアウト、ファンイン)
 
 ```
 Multiple functions can read from the same channel until that channel is closed; this is called fan-out. This provides a way to distribute work amongst a group of workers to parallelize CPU use and I/O.
@@ -140,6 +136,7 @@ A function can read from multiple inputs and proceed until all are closed by mul
 ```
 
 複数の入力チャネルを一つのチャネルに束ねることで、関数はすべてのチャネルが閉じられるまで読み込み処理をすすめることができる。これはfan-inと呼ばれる。
+（訳注：これのこと？[ファンアウト/ファンイン - 意味・説明・解説 : ASCII.jpデジタル用語辞典](http://yougo.ascii.jp/caltar/%E3%83%95%E3%82%A1%E3%83%B3%E3%82%A2%E3%82%A6%E3%83%88/%E3%83%95%E3%82%A1%E3%83%B3%E3%82%A4%E3%83%B3)）
 
 ```
 We can change our pipeline to run two instances of sq, each reading from the same input channel. We introduce a new function, merge, to fan in the results:
@@ -167,7 +164,7 @@ func main() {
 The merge function converts a list of channels to a single channel by starting a goroutine for each inbound channel that copies the values to the sole outbound channel. Once all the output goroutines have been started, merge starts one more goroutine to close the outbound channel after all sends on that channel are done.
 ```
 
-merge関数は複数の入力チャネルをとり、それらの値をコピーして一つの出力チャネルにコピーするgoroutineを実行して、一つのチャネルにまとめる。一旦全ての出力goroutineが開始されたら、merge関数は全ての値を送り終えたら出力チャネルを閉じるもうひとつのgoroutineを開始する。
+merge関数は複数の入力チャネルをとり、それらの値をコピーして一つの出力チャネルにコピーするgoroutineを実行して、一つのチャネルにまとめる。一旦全ての出力goroutineが開始されたら、merge関数は全ての値を送り終えた後に出力チャネルを閉じるもうひとつのgoroutineを開始する。
 
 ```
 Sends on a closed channel panic, so it's important to ensure all sends are done before calling close. The sync.WaitGroup type provides a simple way to arrange this synchronization:
@@ -203,7 +200,7 @@ func merge(cs ...<-chan int) <-chan int {
 }
 ```
 
-## Stopping short
+## Stopping short(早めの停止)
 
 ```
 There is a pattern to our pipeline functions:
@@ -256,7 +253,6 @@ We need to arrange for the upstream stages of our pipeline to exit even when the
 
 なので、下流処理が全ての入力値を処理することに失敗した場合でも、パイプラインが終了するように、上流の処理を変更する必要がある。そのための方法の一つとして、出力チャネルにバッファをもたせる事が挙げられる。バッファは一定の数の値を保持することができる。そのため、送信側の処理はバッファに空きがあれば、処理を直ちに終了することができる。
 
-
 ```go
 c := make(chan int, 2) // buffer size 2
 c <- 1  // succeeds immediately
@@ -306,7 +302,7 @@ Instead, we need to provide a way for downstream stages to indicate to the sende
 
 その代わりに、上流処理に対して入力を処理することを止めると通知する機能を下流処理に導入する必要がある。
 
-## Explicit cancellation
+## Explicit cancellation(明示的なキャンセル)
 
 ```
 When main decides to exit without receiving all the values from out, it must tell the goroutines in the upstream stages to abandon the values they're trying it send. It does so by sending values on a channel called done. It sends two values since there are potentially two blocked senders:
@@ -337,7 +333,7 @@ func main() {
 The sending goroutines replace their send operation with a select statement that proceeds either when the send on out happens or when they receive a value from done. The value type of done is the empty struct because the value doesn't matter: it is the receive event that indicates the send on out should be abandoned. The output goroutines continue looping on their inbound channel, c, so the upstream stages are not blocked. (We'll discuss in a moment how to allow this loop to return early.)
 ```
 
-送信先goroutineでは、送信処理をselectステートメントを使い、outチャネルへの送信のが発生した場合と、doneチャネルから値を受け取った場合の処理を進めるよう変更する。doneチャネルの値は空のstructだが、値の内容自体は何でもいいので、問題ない。それはoutチャネルを破棄するように知らせる受信イベントなのだ。送信goroutineは入力チャネル(c)をループし続けるので、上流処理はブロックされない。(このループを早く止める方法については後に話す。)
+送信先goroutineでは、送信処理をselectステートメントを使い、outチャネルへの送信のが発生した場合と、doneチャネルから値を受け取った場合の処理を進めるよう変更する。doneチャネルの値は空のstructだが、値の内容自体は何でもいいので、問題ない。それはoutチャネルを破棄するように知らせる受信イベントなのだ。送信goroutineは入力チャネル(c)をループし続けるので、上流処理はブロックされない。(このループを早期に止める方法については後に記す。)
 
 ```go
 func merge(done <-chan struct{}, cs ...<-chan int) <-chan int {
@@ -363,7 +359,7 @@ func merge(done <-chan struct{}, cs ...<-chan int) <-chan int {
 This approach has a problem: each downstream receiver needs to know the number of potentially blocked upstream senders and arrange to signal those senders on early return. Keeping track of these counts is tedious and error-prone.
 ```
 
-この方法には問題がある。それぞれの下流の受信者は上流にあるプロックされ得る送信者の数を知っていて、送信するシグナルを変更しなければならない(訳注：この辺りあやふや)。その数をカウントするのは面倒かつバグの温床となりがちだ。
+この方法には問題がある。それぞれの下流の受信者は上流にあるプロックされ得る送信者の数を把握し、送信するシグナルを変更しなければならない(訳注：この辺りあやふや)。その数をカウントするのは面倒かつバグの温床となりがちだ。
 
 ```
 We need a way to tell an unknown and unbounded number of goroutines to stop sending their values downstream. In Go, we can do this by closing a channel, because a receive operation on a closed channel can always proceed immediately, yielding the element type's zero value.
@@ -466,14 +462,13 @@ Pipelines unblock senders either by ensuring there's enough buffer for all the v
 パイプラインは、送信する件数に十分なほどバッファを確保するか、受信者から送信者へチャネルを放棄するというシグナルを送るかのどちらかで、送信者をブロックしないようにする。
 
 
-## Digesting a tree
+## Digesting a tree(ファイルからのダイジェスト値生成)
 
 ```
 Let's consider a more realistic pipeline.
 ```
 
 もっと現実的なパイプラインを考えてみよう。
-
 
 ```
 MD5 is a message-digest algorithm that's useful as a file checksum. The command line utility md5sum prints digest values for a list of files.
@@ -560,7 +555,7 @@ func MD5All(root string) (map[string][md5.Size]byte, error) {
 }
 ```
 
-## Parallel digestion
+## Parallel digestion(並行処理でのダイジェスト値生成)
 
 ```
 In parallel.go, we split MD5All into a two-stage pipeline. The first stage, sumFiles, walks the tree, digests each file in a new goroutine, and sends the results on a channel with value type result:
@@ -656,19 +651,19 @@ func MD5All(root string) (map[string][md5.Size]byte, error) {
 }
 ```
 
-## Bounded parallelism
+## Bounded parallelism(並行処理数の上限設定)
 
 ```
 The MD5All implementation in parallel.go starts a new goroutine for each file. In a directory with many large files, this may allocate more memory than is available on the machine.
 ```
 
-parallel.go内のMD5ALL関数の実装では、全てのファイルに対して新しくgoroutineが開始される。この実装では、大量に大きなファイルがあるディレクトリ内では、使用可能なメモリ以上にメモリを割り当ててしまうかもしれない。
+parallel.go内のMD5ALL関数の実装では、全てのファイルに対して新しくgoroutineが開始される。この実装では、大量に大きなファイルがあるディレクトリ内では、使用可能以上のメモリを割り当ててしまうかもしれない。
 
 ```
 We can limit these allocations by bounding the number of files read in parallel. In bounded.go, we do this by creating a fixed number of goroutines for reading files. Our pipeline now has three stages: walk the tree, read and digest the files, and collect the digests.
 ```
 
-並行して読み込むファイル件数の上限を設定することで、このメモリ割り当てを制限することが可能だ。bouded.goではファイルを読むgoroutineの数を固定することで、この上限設定を行う。我々のパイプラインは3段階の処理を持つ。ファイルツリーの探索、ファイルの読み込みとダイジェスト値の生成、そしてダイジェスト値の集約だ。
+並行して読み込むファイル件数の上限を設定することで、このメモリ割り当てを制限することが可能だ。bounded.goではファイルを読むgoroutineの数を固定することで、この上限設定を行う。我々のパイプラインは3段階の処理を持つ。ファイルツリーの探索、ファイルの読み込みとダイジェスト値の生成、そしてダイジェスト値の集約だ。
 
 ```
 The first stage, walkFiles, emits the paths of regular files in the tree:
@@ -726,7 +721,7 @@ func digester(done <-chan struct{}, paths <-chan string, c chan<- result) {
 Unlike our previous examples, digester does not close its output channel, as multiple goroutines are sending on a shared channel. Instead, code in MD5All arranges for the channel to be closed when all the digesters are done:
 ```
 
-これまでの例とは異なり、複数のgroutineが共有された出力チャネルに対して送信しているので、digester関数はその出力チャネルを閉じない。代わりにMD5ALL関数のコードを、全てのdigesterか完了したらそのチャネルを閉じるよう変更する。
+これまでの例とは異なり、複数のgroutineが共有する一つの出力チャネルに対して送信しているので、digester関数はその出力チャネルを閉じない。代わりにMD5ALL関数のコードを、全てのdigesterか完了したらそのチャネルを閉じるよう変更する。
 
 ```go
     // Start a fixed number of goroutines to read and digest files.
@@ -756,6 +751,7 @@ We could instead have each digester create and return its own output channel, bu
 The final stage receives all the results from c then checks the error from errc. This check cannot happen any earlier, since before this point, walkFiles may block sending values downstream:
 ```
 
+最後の処理ではcチャネルから全ての処理を受け取り、それからerrcチャネルからのエラーをチェックする。このチェックをここより前に実行してはいけない。もしそうすると、walkFiles関数が下流への値の送信をブロックしてしまうかもしれないからだ。
 
 ```go
     m := make(map[string][md5.Size]byte)
@@ -773,6 +769,14 @@ The final stage receives all the results from c then checks the error from errc.
 }
 ```
 
-## Conclusion
+(訳注：全体像が掴みづらくなったのでgistに全体のコードをまとめてみた。[bounded.go](https://gist.github.com/sudix/9929302))
 
+## Conclusion(まとめ)
+
+```
 This article has presented techniques for constructing streaming data pipelines in Go. Dealing with failures in such pipelines is tricky, since each stage in the pipeline may block attempting to send values downstream, and the downstream stages may no longer care about the incoming data. We showed how closing a channel can broadcast a "done" signal to all the goroutines started by a pipeline and defined guidelines for constructing pipelines correctly.
+```
+
+この記事ではGoでストリーミングデータパイプラインを構築するテクニックについて書いた。こういったパイプラインでは、各段階の処理が下流へ値を送信しようとする事がブロックされるかもしれず、また下流処理の方では送られてくる値を処理しなくなるかもしれないので、エラーを扱うにはトリッキーな方法が必要だ。我々はチャネルを閉じることでどのようにして、パイプラインによって開始された全てのgoroutineに対して完了(done）シグナルを知らせるか、また、パイプラインを確実に構築するガイドラインを定義した。
+
+
