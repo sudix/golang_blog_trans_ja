@@ -468,7 +468,7 @@ Pipelines unblock senders either by ensuring there's enough buffer for all the v
 Let's consider a more realistic pipeline.
 ```
 
-もっと現実的なパイプラインを考えてみよう。
+もっと実用的なパイプラインを考えてみよう。
 
 ```
 MD5 is a message-digest algorithm that's useful as a file checksum. The command line utility md5sum prints digest values for a list of files.
